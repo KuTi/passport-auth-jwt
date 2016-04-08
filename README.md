@@ -1,7 +1,11 @@
-# passport-jwt
+# passport-auth-jwt
+
+(Fork from passport-jwt)
 
 A [Passport](http://passportjs.org/) strategy for authenticating with a
 [JSON Web Token](http://jwt.io).
+
+
 
 This module lets you authenticate endpoints using a JSON web token. It is
 intended to be used to secure RESTful endpoints without sessions.
