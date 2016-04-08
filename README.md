@@ -12,7 +12,7 @@ intended to be used to secure RESTful endpoints without sessions.
 
 ## Install
 
-    npm install passport-jwt
+    npm install passport-auth-jwt
 
 ## Usage
 
