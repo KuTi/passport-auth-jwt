@@ -17,10 +17,34 @@ intended to be used to secure RESTful endpoints without sessions.
 Sorry this is a personal library for locking my system. And I to open the handler requirements.
 
 
+### The flow
+
+User <-> Device <-> Provider
+
+`Note`:
+ * `User` This is your user
+ * `Device` This is your application/website
+ * `Provider` This is your system, RESTful endpoint
+
+
 ### Configure
 
-Example:
+```js
+
+/**
+* Config
+*/
+var passport = require('passport');
+var passportAuthJWT = require('passport-auth-jwt');
+config.passport.hook = require('./helper/auth-jwt-hook');
+var PassportMoney = new passportAuthJWT(config.passport);
+passport.use(PassportMoney.strategy());
+
 ```
+
+```
+// config.passport
+
 {
 			clientId: 'client_id',
 			extractJwtOpts: {
@@ -36,35 +60,10 @@ Example:
 			accessTokenExpire: 7 * 86400, // 7 days = 7 * 24 * 3600;
 			refreshTokenExpire: 10 * 365 * 86400, // 10 year
 			requestTokenExpire: 3600 // 1h
-	}
+		}
 
 ```
 
-
-### The flow
-
-User <-> Device <-> Provider
-
-`Note`:
- * `User` This is your user
- * `Device` This is your application/website
- * `Provider` This is your system, RESTful endpoint
-
-
-`Config`
-
-```js
-
-/**
-* Config
-*/
-var passport = require('passport');
-var passportAuthJWT = require('passport-auth-jwt');
-config.passport.hook = require('./helper/auth-jwt-hook');
-var PassportMoney = new passportAuthJWT(config.passport);
-passport.use(PassportMoney.strategy());
-
-```
 
 ```js
 // ./helper/auth-jwt-hook
