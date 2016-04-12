@@ -1,7 +1,5 @@
 # passport-auth-jwt
 
-(Fork from passport-jwt)
-
 A [Passport](http://passportjs.org/) strategy for authenticating with a
 [JSON Web Token](http://jwt.io).
 
