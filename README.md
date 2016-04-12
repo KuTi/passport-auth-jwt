@@ -16,102 +16,341 @@ intended to be used to secure RESTful endpoints without sessions.
 
 ## Usage
 
-### Configure Strategy
+Sorry this is a personal library for locking my system. And I to open the handler requirements.
 
-The JWT authentication strategy is constructed as follows:
 
-    new JwtStrategy(options, verify)
+### Configure
 
-`options` is an object literal containing options to control how the token is
-extracted from the request or verified.
+Example:
+```
+{
+			clientId: 'client_id',
+			extractJwtOpts: {
+				authScheme: 'AuthJWT',
+				tokenBodyField: 'access_token',
+				tokenQueryParameterName: 'access_token'
+			},
+			requestTokenEndpoint: '/auth/request-token',
+			refreshTokenEndpoint: '/auth/refresh-token',
+			tokenEndpoint: '/auth/token',
+			ignoreRequestTokenUrl: ['/'],
+			secret: '5f2c6556-2483-4254-a0e6-d8aec4069caa',
+			accessTokenExpire: 7 * 86400, // 7 days = 7 * 24 * 3600;
+			refreshTokenExpire: 10 * 365 * 86400, // 10 year
+			requestTokenExpire: 3600 // 1h
+	}
 
-* `secretOrKey` is a REQUIRED string or buffer containing the secret
-  (symmetric) or PEM-encoded public key (asymmetric) for verifying the token's
-  signature.
+```
 
-* `jwtFromRequest` (REQUIRED) Function that accepts a request as the only
-  parameter and returns either the JWT as a string or *null*. See 
-  [Extracting the JWT from the request](#extracting-the-jwt-from-the-request) for
-  more details.
-* `issuer`: If defined the token issuer (iss) will be verified against this
-  value.
-* `audience`: If defined, the token audience (aud) will be verified against
-  this value.
-* `algorithms`: List of strings with the names of the allowed algorithms. For instance, ["HS256", "HS384"].
-* `ignoreExpiration`: if true do not validate the expiration of the token.
-* `passReqToCallback`: If true the request will be passed to the verify
-  callback. i.e. verify(request, jwt_payload, done_callback).
 
-`verify` is a function with the parameters `verify(jwt_payload, done)`
+### The flow
 
-* `jwt_payload` is an object literal containing the decoded JWT payload.
-* `done` is a passport error first callback accepting arguments
-  done(error, user, info)
+User <-> Device <-> Provider
 
-An example configuration which reads the JWT from the http
-Authorization header with the scheme 'JWT':
+`Note`:
+ * `User` This is your user
+ * `Device` This is your application/website
+ * `Provider` This is your system, RESTful endpoint
+
+
+`Config`
 
 ```js
-var JwtStrategy = require('passport-jwt').Strategy,
-    ExtractJwt = require('passport-jwt').ExtractJwt;
-var opts = {}
-opts.jwtFromRequest = ExtractJwt.fromAuthHeader();
-opts.secretOrKey = 'secret';
-opts.issuer = "accounts.examplesoft.com";
-opts.audience = "yoursite.net";
-passport.use(new JwtStrategy(opts, function(jwt_payload, done) {
-    User.findOne({id: jwt_payload.sub}, function(err, user) {
-        if (err) {
-            return done(err, false);
-        }
-        if (user) {
-            done(null, user);
-        } else {
-            done(null, false);
-            // or you could create a new account
-        }
-    });
-}));
-```
 
-### Extracting the JWT from the request
-
-There are a number of ways the JWT may be included in a request.  In order to remain as flexible as
-possible the JWT is parsed from the request by a user-supplied callback passed in as the
-`jwtFromRequest` parameter.  This callback, from now on referred to as an extractor,
-accepts a request object as an argument and returns the encoded JWT string or *null*.
-
-#### Included extractors 
-
-A number of extractor factory functions are provided in passport-jwt.ExtractJwt. These factory
-functions return a new extractor configured with the given parameters.
-
-* ```fromHeader(header_name)``` creates a new extractor that looks for the JWT in the given http
-  header
-* ```fromBodyField(field_name)``` creates a new extractor that looks for the JWT in the given body
-  field.  You must have a body parser configured in order to use this method.
-* ```fromUrlQueryParameter(param_name)``` creates a new extractor that looks for the JWT in the given
-  URL query parameter.
-* ```fromAuthHeaderWithScheme(auth_scheme)``` creates a new extractor that looks for the JWT in the
-  authorization header, expecting the scheme to match auth_scheme.
-* ```fromAuthHeader()``` creates a new extractor that looks for the JWT in the authorization header
-  with the scheme 'JWT'
-
-### Writing a custom extractor function
-
-If the supplied extractors don't meet your needs you can easily provide your own callback. For
-example, if you are using the cookie-parser middleware and want to extract the JWT in a cookie 
-you could use the following function as the argument to the jwtFromRequest option:
+/**
+* Config
+*/
+var passport = require('passport');
+var passportAuthJWT = require('passport-auth-jwt');
+config.passport.hook = require('./helper/auth-jwt-hook');
+var PassportMoney = new passportAuthJWT(config.passport);
+passport.use(PassportMoney.strategy());
 
 ```
-var cookieExtractor = function(req) {
-    var token = null;
-    if (req && req.cookies)
-    {
-        token = req.cookies['jwt'];
-    }
-    return token;
+
+```js
+// ./helper/auth-jwt-hook
+
+'use strict';
+
+const mongoose = require('mongoose');
+const uuid = require('node-uuid');
+const jwt = require('jsonwebtoken');
+const async = require('async');
+const moment = require('moment');
+const _ = require('lodash');
+
+const PassportError = function (done, err) {
+	if (err) {
+		console.log(err);
+	}
+
+	return done({error: err}, false);
 };
+
+const ClientSchema = mongoose.model('ClientKey');
+const UserSchema = mongoose.model('User');
+const RefreshTokenSchema = mongoose.model('RefreshToken');
+
+const Error = require('../config/error');
+
+// restify get path;
+var getPath = function (req) {
+	return req.route ? req.route.path : req.path;
+};
+
+var urlRequireForRequestToken = ['/auth/token', '/facebook-register', '/google-register', '/register', '/forgot-password'];
+
+var AuthJWTHook = {
+	verify: function (config) {
+		return function (req, jwt_payload, done) {
+			console.log('payload', jwt_payload);
+
+			// Logic
+			if (req.authenticate.client === jwt_payload.client_id) {
+				switch (jwt_payload.type) {
+					case 'request-token':
+						AuthJWTHook._verifyRequestToken(req, jwt_payload, done, config);
+						break;
+					case 'refresh-token':
+						AuthJWTHook._verifyRefreshToken(req, jwt_payload, done, config);
+						break;
+					case 'access-token':
+						done(null, jwt_payload);
+						break;
+					default:
+						PassportError(done);
+				}
+			} else {
+				PassportError(done);
+			}
+		}
+	},
+
+	// Set userId to req
+	passportCallback: function (req, res, next) {
+		return function (err, user, info) {
+			if (user) {
+				req.userId = user.userId;
+				next();
+			} else {
+				next(err || info);
+			}
+		};
+	},
+
+	requestTokenCallback: function (req, res, next) {
+		return function (error, token) {
+			res.send(token);
+		}
+	},
+
+	/*
+	 more in req
+	 req.authenticate = {
+	 client: '14235l4tjgksdsjdlkfs',
+	 secret: '3o432492rjfksdfjslkdfjsdkl'
+	 };
+
+	 */
+	generateRequestToken: function (req, res, next, config) {
+		var clientInfo = req.authenticate;
+
+		ClientSchema.findOne({
+			client: clientInfo.client,
+			secret: clientInfo.secret,
+			isDisabled: false
+		}, function (error, client) {
+			if (client) {
+				var token = AuthJWTHook._generateJWTToken(
+					'request-token', config.secret, `${config.requestTokenExpire}s`, {
+						clientId: client._id,
+						client_id: client.client
+					}
+				);
+				res.send({status: true, request_token: token});
+			} else {
+				res.send({
+					status: false,
+					message: Error['OAUTH_ERROR_CLIENT_SECRET_NOT_VALIDATE']
+				});
+			}
+		});
+	},
+
+	generateAccessToken: function (req, res, next, config) {
+		// Logic for generate token
+		return function (error, tokenInfo) {
+			if (tokenInfo && tokenInfo.type === 'request-token') {
+				var client_id = tokenInfo.client_id;
+				var clientId = tokenInfo.clientId;
+				var postData = req.body;
+
+				AuthJWTHook._login(clientId, client_id, postData, config, function (error, data) {
+					if (error) {
+						res.send({
+							status: false,
+							message: error
+						});
+					} else {
+						res.send({
+							status: true,
+							access_token: data.access_token,
+							expire: data.expire,
+							refresh_token: data.refresh_token
+						});
+					}
+				});
+			} else {
+
+				res.send({
+					status: false,
+					message: Error['OAUTH_ERROR_CLIENT_SECRET_NOT_VALIDATE']
+				});
+			}
+		};
+	},
+
+	generateRefreshToken: function (req, res, next, config) {
+		return function (error, tokenInfo) {
+			if (tokenInfo && tokenInfo.type === 'refresh-token') {
+				AuthJWTHook._generateToken(
+					tokenInfo.clientId,
+					tokenInfo.client_id,
+					tokenInfo.userId,
+					config.secret,
+					tokenInfo.key,
+					config,
+					function (error, results) {
+						if (error) {
+							res.send({
+								status: false,
+								message: Error['']
+							});
+						} else {
+							res.send({
+								status: true,
+								access_token: results.access_token.token,
+								expire: results.access_token.expire,
+								refresh_token: results.refresh_token
+							});
+						}
+					},
+					tokenInfo.deviceKey
+				);
+			} else {
+				res.send({
+					status: false,
+					message: Error['OAUTH_ERROR_CLIENT_SECRET_NOT_VALIDATE']
+				});
+			}
+		};
+	},
+
+	_generateToken: function (clientId, client_id, userId, secret, key, config, callback, deviceKey) {
+		async.parallel({
+			refresh_token: function (callback) {
+				AuthJWTHook._createRefreshToken(
+					clientId, client_id, userId, secret, config, callback, deviceKey
+				);
+			},
+			access_token: function (callback) {
+				AuthJWTHook._createAccessToken(
+					clientId, client_id, userId, secret, config, callback, deviceKey
+				);
+			},
+			clean_refresh_token: function (callback) {
+				if (key) {
+					AuthJWTHook._cleanRefreshToken(key, callback);
+				} else {
+					callback(null, true);
+				}
+			}
+		}, callback);
+	},
+
+	_createRefreshToken: function (clientId, client_id, userId, secret, config, callback, deviceKey) {
+		var key = uuid.v4();
+
+		var token = AuthJWTHook._generateJWTToken('refresh-token', secret, `${config.refreshTokenExpire}s`, {
+			clientId: clientId,
+			client_id: client_id,
+			userId: userId,
+			key: key,
+			deviceKey: deviceKey
+		});
+
+		// logic more...
+	},
+
+	_cleanRefreshToken: function (key, callback) {
+		// Logic for clean refresh token
+
+	},
+
+	_createAccessToken: function (clientId, client_id, userId, secret, config, callback, deviceKey) {
+		var attachInfo = {
+			clientId: clientId,
+			client_id: client_id,
+			userId: userId,
+			code: deviceKey
+		};
+
+		var token = AuthJWTHook._generateJWTToken('access-token', secret, `${config.accessTokenExpire}s`, attachInfo);
+
+		callback(null, {
+			token: token,
+			expire: AuthJWTHook._getExpire(config.accessTokenExpire)
+		});
+	},
+
+	_verifyRequestToken: function (req, jwt_payload, done, config) {
+		if (urlRequireForRequestToken.indexOf(getPath(req)) > -1) {
+			done(null, jwt_payload);
+		} else {
+			PassportError(done);
+		}
+	},
+
+	_verifyRefreshToken: function (req, jwt_payload, done, config) {
+		// Valid refresh token
+
+		console.log('OK');
+
+		if (config.refreshTokenEndpoint === getPath(req) && jwt_payload.deviceKey) {
+			// Logic for verufy refresh token
+		} else {
+			console.log(error);
+			PassportError(done, error);
+		}
+	},
+
+	_generateJWTToken: function (type, secret, expire, extraData) {
+		extraData = extraData || {};
+
+		var token_payload = {
+			type: type,
+			code: uuid.v4()
+		};
+
+		token_payload = Object.assign(token_payload, extraData);
+
+		return jwt.sign(token_payload, secret, {
+			expiresIn: expire
+		});
+	},
+
+	_getExpire: function (day) {
+		return moment().add(day, 's').format('X');
+	},
+
+	_login: function (clientId, client_id, postData, config, callback) {
+		// Login function....
+		AuthJWTHook._generateToken(...)
+	}
+};
+
+module.exports = AuthJWTHook;
 ```
 
 ### Authenticate requests
@@ -119,84 +358,12 @@ var cookieExtractor = function(req) {
 Use `passport.authenticate()` specifying `'JWT'` as the strategy.
 
 ```js
-app.post('/profile', passport.authenticate('jwt', { session: false}),
+app.post('/profile', PassportMoney.authenticate({ session: false}),
     function(req, res) {
         res.send(req.user.profile);
     }
 );
 ```
 
-### Include the JWT in requests
+If you have any questions please create issues on Github. I will try to help
 
-The strategy will first check the request for the standard *Authorization*
-header. If this header is present and the scheme matches `options.authScheme`
-or 'JWT' if no auth scheme was specified then the token will be retrieved from
-it. e.g.
-
-    Authorization: JWT JSON_WEB_TOKEN_STRING.....
-
-If the authorization header with the expected scheme is not found, the request
-body will be checked for a field matching either `options.tokenBodyField` or
-`auth_token` if the option was not specified.
-
-Finally, the URL query parameters will be checked for a field matching either
-`options.tokenQueryParameterName` or `auth_token` if the option was not
-specified.
-
-## Migrating from version 1.x.x to 2.x.x
-
-The v2 API is not backwards compatible with v1, specifically with regards to the introduction
-of the concept of JWT extractor functions.  If you require the legacy behavior in v1 you can use
-the extractor function ```versionOneCompatibility(options)```
-
-*options* is an object with any of the three custom JWT extraction options present in the v1
-constructor:
-* `tokenBodyField`: Field in a request body to search for the JWT.
-  Default is auth_token.
-* `tokenQueryParameterName`: Query parameter name containing the token.
-  Default is auth_token.
-* `authScheme`: Expected authorization scheme if token is submitted through
-  the HTTP Authorization header. Defaults to JWT
-
-If in v1 you constructed the strategy like this:
-
-```js
-var JwtStrategy = require('passport-jwt').Strategy;
-var opts = {}
-opts.tokenBodyField = "MY_CUSTOM_BODY_FIELD";
-opts.secretOrKey = 'secret';
-opts.issuer = "accounts.examplesoft.com";
-opts.audience = "yoursite.net";
-passport.use(new JwtStrategy(opts, verifyFunction));
-```
-
-Identical behavior can be achieved under v2 with the versionOneCompatibility extractor:
-
-```js
-var JwtStrategy = require('passport-jwt').Strategy,
-    ExtractJwt = require('passport-jwt').ExtractJwt;
-var opts = {}
-opts.jwtFromRequest = ExtractJwt.versionOneCompatibility({ tokenBodyField = "MY_CUSTOM_BODY_FIELD" });
-opts.opts.secretOrKey = 'secret';
-opts.issuer = "accounts.examplesoft.com";
-opts.audience = "yoursite.net";
-passport.use(new JwtStrategy(opts, verifyFunction));
-```
-
-
-## Tests
-
-    npm install
-    npm test
-
-To generate test-coverage reports:
-
-    npm install -g istanbul
-    npm run-script testcov
-    istanbul report
-
-## License
-
-The [MIT License](http://opensource.org/licenses/MIT)
-
-Copyright (c) 2015 Mike Nicholson
