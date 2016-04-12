@@ -355,7 +355,7 @@ module.exports = AuthJWTHook;
 
 ### Authenticate requests
 
-Use `passport.authenticate()` specifying `'JWT'` as the strategy.
+Use `PassportMoney.authenticate()` specifying `'JWT'` as the strategy.
 
 ```js
 app.post('/profile', PassportMoney.authenticate({ session: false}),
